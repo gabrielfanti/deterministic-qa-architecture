@@ -1,0 +1,39 @@
+{
+  "name": "qa-automation-framework",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node server/index.ts",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down -v",
+    "test:local": "npm run docker:up && playwright test",
+    "test": "playwright test",
+    "test:smoke": "playwright test -g \"@smoke\"",
+    "test:regression": "playwright test -g \"@regression\"",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.2.3",
+    "@types/pg": "^8.16.0",
+    "@typescript-eslint/eslint-plugin": "^8.55.0",
+    "@typescript-eslint/parser": "^8.55.0",
+    "eslint": "^9.39.2",
+    "playwright": "^1.58.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "pg": "^8.18.0"
+  }
+}
