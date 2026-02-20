@@ -3,3 +3,6 @@ dist
 playwright-report
 test-results
 .env
+perf/results
+artifacts
+blob-report

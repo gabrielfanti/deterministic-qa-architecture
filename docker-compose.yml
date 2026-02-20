@@ -5,8 +5,6 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
       POSTGRES_DB: app
-    ports:
-      - "5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
@@ -20,8 +18,21 @@ services:
     environment:
       PORT: 3000
       DATABASE_URL: postgres://postgres:postgres@db:5432/app
+      DB_DEBUG: ${DB_DEBUG:-false}
     ports:
       - "3000:3000"
     depends_on:
       db:
         condition: service_healthy
+
+  k6:
+    image: grafana/k6:0.50.0
+    profiles: ["perf"]
+    working_dir: /work
+    volumes:
+      - ./:/work
+    depends_on:
+      app:
+        condition: service_started
+    entrypoint: ["sh", "-lc"]
+    command: ["k6 version"]

@@ -1,0 +1,289 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Task Console</title>
+    <style>
+      :root {
+        --bg: #f4f7f1;
+        --panel: #ffffff;
+        --ink: #1f2a1f;
+        --accent: #236d52;
+        --line: #d8e0d6;
+        --danger: #b42318;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at top left, #e7efe7, var(--bg));
+        color: var(--ink);
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+      }
+      .layout { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .row { display: grid; gap: 8px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 8px; }
+      .row.compact { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      input, select, button, textarea {
+        font: inherit;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px;
+      }
+      button {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        cursor: pointer;
+      }
+      button.secondary { background: #5f6f65; }
+      button.danger { background: var(--danger); }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 10px 6px; }
+      th { font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
+      .meta { display: flex; gap: 12px; font-size: 13px; }
+      .hidden { display: none; }
+      .error { color: var(--danger); font-size: 13px; }
+      #debug { background: #f7faf6; border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto; max-height: 220px; }
+      @media (max-width: 720px) {
+        .row, .row.compact { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <h1>Task Console</h1>
+      <section class="panel" id="authPanel">
+        <h2>Login</h2>
+        <div class="row">
+          <input id="email" value="qa-user@example.com" aria-label="email" />
+          <input id="password" value="password123" aria-label="password" />
+          <button id="loginBtn">Login</button>
+          <button class="secondary" id="loginAdminBtn">Login as admin</button>
+        </div>
+        <div class="meta">
+          <span>User: <strong id="authUser">-</strong></span>
+          <span>Role: <strong id="authRole">-</strong></span>
+        </div>
+        <p id="authError" class="error"></p>
+      </section>
+
+      <section class="panel hidden" id="tasksPanel">
+        <h2>Create Task</h2>
+        <div class="row compact">
+          <input id="title" placeholder="Title" aria-label="task-title" />
+          <select id="status" aria-label="task-status">
+            <option value="todo">todo</option>
+            <option value="in_progress">in_progress</option>
+            <option value="done">done</option>
+          </select>
+          <select id="type" aria-label="task-type">
+            <option value="feature">feature</option>
+            <option value="bug">bug</option>
+            <option value="chore">chore</option>
+          </select>
+          <input id="externalRef" placeholder="external ref" aria-label="task-external-ref" />
+          <input id="runId" placeholder="run id" value="ui-manual" aria-label="task-run-id" />
+          <button id="createBtn">Create</button>
+        </div>
+        <div class="row">
+          <textarea id="description" placeholder="Description" aria-label="task-description"></textarea>
+        </div>
+        <p id="formError" class="error"></p>
+
+        <h2>Task List</h2>
+        <div class="row compact">
+          <input id="searchQ" placeholder="search" aria-label="search-input" />
+          <select id="filterStatus" aria-label="filter-status">
+            <option value="">all status</option>
+            <option value="todo">todo</option>
+            <option value="in_progress">in_progress</option>
+            <option value="done">done</option>
+          </select>
+          <select id="filterType" aria-label="filter-type">
+            <option value="">all type</option>
+            <option value="feature">feature</option>
+            <option value="bug">bug</option>
+            <option value="chore">chore</option>
+          </select>
+          <select id="sort" aria-label="sort-created-at">
+            <option value="desc">createdAt desc</option>
+            <option value="asc">createdAt asc</option>
+          </select>
+          <button class="secondary" id="applyFiltersBtn">Apply</button>
+          <button class="secondary" id="refreshBtn">Refresh</button>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Title</th><th>Status</th><th>Type</th><th>Version</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="taskTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Debug</h2>
+        <pre id="debug"></pre>
+      </section>
+    </div>
+
+    <script>
+      const state = {
+        token: "",
+        role: "",
+        user: "",
+        page: 1,
+        limit: 20,
+        tasks: [],
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const debug = (data) => ($("debug").textContent = JSON.stringify(data, null, 2));
+
+      async function api(path, options = {}) {
+        const headers = { "content-type": "application/json", ...(options.headers || {}) };
+        if (state.token) headers.authorization = `Bearer ${state.token}`;
+        const res = await fetch(path, { ...options, headers });
+        if (res.status === 204) return null;
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const normalized = typeof body?.error === "string"
+            ? { ...body, errorMessage: body.error }
+            : { ...body, errorMessage: body?.error?.message || "request failed", errorCode: body?.error?.code };
+          throw normalized;
+        }
+        return body;
+      }
+
+      function setLoggedIn(data) {
+        state.token = data.token;
+        state.role = data.role;
+        state.user = data.email;
+        $("authUser").textContent = data.email;
+        $("authRole").textContent = data.role;
+        $("tasksPanel").classList.remove("hidden");
+      }
+
+      async function login(email, password) {
+        $("authError").textContent = "";
+        try {
+          const data = await api("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+          setLoggedIn(data);
+          await loadTasks();
+        } catch (error) {
+          $("authError").textContent = error.errorCode || error.errorMessage || "login failed";
+          throw error;
+        }
+      }
+
+      function renderRows(items) {
+        const tbody = $("taskTableBody");
+        tbody.innerHTML = "";
+        for (const task of items) {
+          const tr = document.createElement("tr");
+          tr.setAttribute("data-task-id", String(task.id));
+          tr.innerHTML = `
+            <td>${task.id}</td>
+            <td><input aria-label="edit-title-${task.id}" value="${task.title.replace(/"/g, "&quot;")}" /></td>
+            <td>
+              <select aria-label="edit-status-${task.id}">
+                <option ${task.status === "todo" ? "selected" : ""} value="todo">todo</option>
+                <option ${task.status === "in_progress" ? "selected" : ""} value="in_progress">in_progress</option>
+                <option ${task.status === "done" ? "selected" : ""} value="done">done</option>
+              </select>
+            </td>
+            <td>${task.type}</td>
+            <td data-testid="task-version">${task.version}</td>
+            <td>
+              <button data-action="save" data-id="${task.id}" class="secondary">Save</button>
+              <button data-action="delete" data-id="${task.id}" class="danger">Delete</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function loadTasks() {
+        const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), sort: $("sort").value });
+        if ($("searchQ").value.trim()) params.set("q", $("searchQ").value.trim());
+        if ($("filterStatus").value) params.set("status", $("filterStatus").value);
+        if ($("filterType").value) params.set("type", $("filterType").value);
+
+        const result = await api(`/api/tasks?${params.toString()}`);
+        state.tasks = result.items;
+        renderRows(result.items);
+        debug(result);
+      }
+
+      async function createTask() {
+        $("formError").textContent = "";
+        const title = $("title").value.trim();
+        if (!title) {
+          $("formError").textContent = "title is required";
+          return;
+        }
+        const payload = {
+          title,
+          description: $("description").value.trim() || null,
+          status: $("status").value,
+          type: $("type").value,
+          externalRef: $("externalRef").value.trim() || `ui-${Date.now()}`,
+          runId: $("runId").value.trim() || "ui-manual",
+        };
+
+        try {
+          await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
+          $("title").value = "";
+          $("description").value = "";
+          await loadTasks();
+        } catch (error) {
+          $("formError").textContent = error.errorCode || error.errorMessage || "failed to create";
+          debug(error);
+        }
+      }
+
+      async function updateTask(taskId) {
+        const tr = document.querySelector(`tr[data-task-id="${taskId}"]`);
+        const title = tr.querySelector(`input[aria-label="edit-title-${taskId}"]`).value.trim();
+        const status = tr.querySelector(`select[aria-label="edit-status-${taskId}"]`).value;
+        const current = state.tasks.find((item) => item.id === taskId);
+
+        await api(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ title, status, version: current.version }),
+        });
+
+        await loadTasks();
+      }
+
+      async function deleteTask(taskId) {
+        await api(`/api/tasks/${taskId}`, { method: "DELETE" });
+        await loadTasks();
+      }
+
+      $("loginBtn").addEventListener("click", () => login($("email").value, $("password").value).catch(debug));
+      $("loginAdminBtn").addEventListener("click", () => login("qa-admin@example.com", "password123").catch(debug));
+      $("createBtn").addEventListener("click", () => createTask().catch(debug));
+      $("refreshBtn").addEventListener("click", () => loadTasks().catch(debug));
+      $("applyFiltersBtn").addEventListener("click", () => loadTasks().catch(debug));
+
+      $("taskTableBody").addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const action = target.getAttribute("data-action");
+        const id = Number(target.getAttribute("data-id"));
+        if (!action || !id) return;
+        if (action === "save") updateTask(id).catch(debug);
+        if (action === "delete") deleteTask(id).catch(debug);
+      });
+    </script>
+  </body>
+</html>

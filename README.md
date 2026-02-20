@@ -1,93 +1,85 @@
-# QA Automation Framework (Playwright + API + Docker + CI)
+# QA Automation Framework
 
-Production-grade QA automation framework showcasing layered test architecture, deterministic execution, a containerized SUT, CI parity, and strong failure observability.
+QA automation project with a deterministic local stack (Express + Postgres + Playwright), built to show practical test architecture and CI discipline.
 
----
+## What This Project Covers
+
+- Deterministic full-stack test execution (Docker Compose + seeded Postgres)
+- Layered Playwright strategy with governance by tags
+- Typed API test utilities and contract assertions
+- Observability with correlation IDs, structured logs, and CI artifacts
+- CI/local parity with the same SUT topology and quality gates
+
+## Run the App (Task Console UI)
+
+```bash
+npm ci
+npm run docker:up
+```
+
+Open:
+
+- `http://127.0.0.1:3000`
+
+Default users:
+
+- User: `qa-user@example.com` / `password123`
+- Admin: `qa-admin@example.com` / `password123`
 
 ## Architecture
 
 ```text
-                    +---------------------------+
-                    |      GitHub Actions       |
-                    |  lint + tests + artifacts |
-                    +-------------+-------------+
-                                  |
-                                  v
-+-------------------+   HTTP   +----------------------------------------------+   SQL   +------------------+
-| Playwright Runner +--------->+ Application Container                        +------->+ PostgreSQL       |
-| API + E2E specs   |          | Node/Express (bind 0.0.0.0, via 127.0.0.1)  |        | Container        |
-+---------+---------+          +----------------------------------------------+        +------------------+
-          |
-          v
- +------------------------------+
- | HTML report + test-results   |
- | trace / screenshot / video   |
- +------------------------------+
+Playwright (API/E2E) ---> Express SUT ---> PostgreSQL
+        |                      |              |
+        v                      v              v
+  reports/traces/videos     JSON logs      deterministic seed
 ```
 
-SUT services (app + database) run through Docker Compose.  
-CI runs the same stack as local execution.  
-No external environments required.
+Runtime code boundaries:
 
----
+- `src/app`: app wiring, request context, logger, typed errors, UI page
+- `src/config`: environment loading and validation
+- `src/db`: DB client and health probing
+- `src/middlewares`: correlation, auth, request logging, global error handler
+- `src/routes`: HTTP endpoints
+- `src/services`: business logic and validation rules
 
-## Test Strategy
+## Determinism Model
 
-Layered automation strategy:
+- DB schema + seed is fully defined in `db/init.sql`
+- Containers are recreated from scratch with `docker compose down -v`
+- Tests generate bounded deterministic IDs (`TEST_RUN_ID` + local suffix)
+- Cleanup endpoint removes run-scoped records: `DELETE /api/tasks/testing/run/:runId`
+- API sorting is explicit (`created_at, id`) to avoid implicit DB ordering
 
-- **API tests**
-  - Validates business rules and data integrity at the service layer.
-  - Provides faster feedback cycles.
-  - Reduces UI dependency.
+## Test Strategy (Current)
 
-- **E2E tests**
-  - Validates critical user journeys.
-  - Exercises the full stack (UI → API → DB).
+Final suite count: **18 tests**
 
-- **Smoke suite**
-  - Protects release confidence.
-  - Covers the minimum set of critical flows.
+- API: 12 (`tests/api/tasks.api.spec.ts`)
+- E2E: 4 (`tests/e2e/tasks.e2e.spec.ts`)
+- Smoke: 2 (`tests/smoke/smoke.spec.ts`)
 
-- **Regression suite**
-  - Provides full behavioral validation.
+Rationale:
 
-Principles:
+- Business rules stay primarily at API layer (faster, less brittle)
+- E2E is intentionally minimal for critical user journeys only
+- Smoke remains very small for fast feedback
 
-- Minimize E2E redundancy.
-- Validate logic as low in the stack as possible.
-- Maintain deterministic test data per run.
+## Tag Taxonomy
 
----
+Required per test:
 
-## Deterministic Execution
+- One layer tag: `@api` or `@e2e`
+- One suite tag: `@smoke` or `@regression`
 
-- PostgreSQL is initialized via SQL seed on container startup.
-- Containers recreated per CI run.
-- No shared environments.
-- No dependency on external services.
-- IPv4 baseURL (`127.0.0.1`) is enforced to avoid macOS IPv6 resolution issues.
+Optional capability tags:
 
-CI runs always start from a clean, reproducible state.  
-Local runs are clean when containers are recreated with `docker compose down -v`.
+- `@contract`, `@auth`, `@negative`, `@pagination`, `@filtering`, `@search`, `@sorting`, `@db`, `@quarantine`
 
----
-
-## Tech Stack
-
-- TypeScript
-- Playwright (API + E2E)
-- Node.js + Express (SUT)
-- PostgreSQL
-- Docker Compose
-- GitHub Actions
-- ESLint (`@typescript-eslint`)
-
----
-
-## Local Setup and Full Run
+## Run Commands
 
 ```bash
-cp .env.example .env
 npm ci
 npm run docker:up
 npm run lint
@@ -95,115 +87,68 @@ npm test
 npm run report
 ```
 
-Stop the environment:
+Targeted runs:
+
+```bash
+npm run test:smoke
+npm run test:regression
+npm run test:api
+npm run test:e2e
+npm run test:auth
+npm run test:negative
+npm run test:ci
+```
+
+Stop stack:
 
 ```bash
 npm run docker:down
 ```
 
----
-
-## Test Execution by Scope
-
-API-only:
+## Performance Checks (k6)
 
 ```bash
-npx playwright test tests/api
+npm run perf:smoke
+npm run perf:load
+npm run perf:stress
 ```
 
-E2E-only:
+Smoke thresholds:
 
-```bash
-npx playwright test tests/e2e
-```
+- `http_req_duration` p95 < 500ms
+- `http_req_failed` rate < 1%
 
-Smoke suite:
+## CI Gates
 
-```bash
-npm run test:smoke
-```
+- Lint gate
+- Sharded Playwright regression execution
+- Quarantine-aware run (`--grep-invert @quarantine`)
+- Flake detection reruns for failures
+- k6 smoke threshold gate
+- Artifacts: Playwright reports, test-results, k6 reports, SUT logs
 
-Regression suite:
+## Observability and Debugging Artifacts
 
-```bash
-npm run test:regression
-```
+- Correlation propagation: `x-correlation-id`
+- Test-to-request traceability: `x-test-id`
+- Structured JSON logs (secrets redacted)
+- Failure artifacts: trace, screenshot, video, HTML report
 
----
+## Engineering Rationale
 
-## Failure Observability
+This project keeps a realistic but bounded SUT (`tasks` with CRUD + query behavior + optimistic locking) because it is enough to demonstrate:
 
-On failure, the framework captures:
+- API correctness and query coverage
+- role-based auth behavior
+- deterministic data isolation
+- observability and CI controls
 
-- HTML report (`playwright-report/`)
-- Trace on first retry
-- Screenshot on failure
-- Video retained on failure
-- Raw artifacts in `test-results/`
+Extra E2E permutations were removed because they duplicated API coverage and increased brittleness without improving defect detection.
 
-CI always uploads:
+## Additional Documentation
 
-- `playwright-report`
-- `test-results`
-
-This enables reproducible debugging directly from pipeline runs.
-
----
-
-## CI Pipeline (Local Parity)
-
-Pipeline steps:
-
-1. `npm ci`
-2. Install Playwright browsers
-3. Start SUT stack via Docker Compose
-4. Healthcheck validation
-5. `npm run lint`
-6. `npm test`
-7. Upload artifacts
-
-CI uses the same containerized stack as local runs.  
-This minimizes environment drift.
-
----
-
-## Design Decisions & Trade-offs
-
-- **Playwright over Cypress**
-  - Native API testing support.
-  - Strong parallel execution.
-  - Stable CI performance.
-
-- **Docker Compose instead of cloud deployment**
-  - Deterministic execution.
-  - Low operational cost.
-  - Infrastructure parity across environments.
-
-- **Minimal Express SUT**
-  - Keeps focus on automation architecture.
-  - Isolates test strategy from product complexity.
-
-- **PostgreSQL container**
-  - Ensures realistic relational data behavior.
-  - Enables reproducible database state.
-
----
-
-## How This Scales
-
-This framework can evolve to support:
-
-- Microservices (additional service containers).
-- Contract testing integration (e.g., Pact).
-- Performance stage (k6).
-- Parallel CI job distribution.
-- Cloud container deployment (AWS ECS / Azure Container Apps) without major architectural change.
-
-The current structure cleanly separates:
-
-- Test logic
-- Infrastructure
-- Application
-- Data layer
-
-This supports architectural growth without major structural refactoring.
+- `docs/ARCHITECTURE.md`
+- `docs/TEST_STRATEGY.md`
+- `docs/TAGGING.md`
+- `docs/DEBUGGING.md`
+- `docs/CONTRIBUTING.md`

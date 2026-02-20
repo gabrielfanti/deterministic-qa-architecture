@@ -1,0 +1,10 @@
+name: "qa-automation-framework codeql"
+queries:
+  - uses: security-and-quality
+paths:
+  - server
+  - src
+  - tests
+paths-ignore:
+  - node_modules
+  - perf/results
