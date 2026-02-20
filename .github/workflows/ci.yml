@@ -33,7 +33,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1/2", "2/2"]
+        include:
+          - shard: "1/2"
+            shard_id: "1-2"
+          - shard: "2/2"
+            shard_id: "2-2"
 
     steps:
       - uses: actions/checkout@v4
@@ -77,27 +81,27 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts
-          docker compose logs app db > artifacts/sut-logs-${{ replace(matrix.shard, '/', '-') }}.log || true
+          docker compose logs app db > artifacts/sut-logs-${{ matrix.shard_id }}.log || true
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ replace(matrix.shard, '/', '-') }}
+          name: playwright-report-${{ matrix.shard_id }}
           path: playwright-report
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ replace(matrix.shard, '/', '-') }}
+          name: test-results-${{ matrix.shard_id }}
           path: test-results
 
       - name: Upload SUT logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sut-logs-${{ replace(matrix.shard, '/', '-') }}
+          name: sut-logs-${{ matrix.shard_id }}
           path: artifacts
 
       - name: Shutdown
