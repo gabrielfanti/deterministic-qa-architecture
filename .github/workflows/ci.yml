@@ -77,27 +77,27 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts
-          docker compose logs app db > artifacts/sut-logs-${{ matrix.shard }}.log || true
+          docker compose logs app db > artifacts/sut-logs-${{ replace(matrix.shard, '/', '-') }}.log || true
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.shard }}
+          name: playwright-report-${{ replace(matrix.shard, '/', '-') }}
           path: playwright-report
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.shard }}
+          name: test-results-${{ replace(matrix.shard, '/', '-') }}
           path: test-results
 
       - name: Upload SUT logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sut-logs-${{ matrix.shard }}
+          name: sut-logs-${{ replace(matrix.shard, '/', '-') }}
           path: artifacts
 
       - name: Shutdown
